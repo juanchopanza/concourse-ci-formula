@@ -1,3 +1,4 @@
+import os
 import pathlib
 import pytest
 import subprocess
@@ -85,6 +86,12 @@ def test_minio_is_running_and_enabled(host):
     assert minio.is_enabled
 
 
+def test_vault_is_running_and_enabled(host):
+    vault = host.service("vault")
+    assert vault.is_running
+    assert vault.is_enabled
+
+
 def vm_usable_address(host):
     return host.salt('network.interface_ip', ['eth0'])
 
@@ -121,6 +128,28 @@ def fly_login(host):
 
 def test_fly_can_login_and_logout(fly_login):
     # test is empty because we are testing the fly_login fixture
+    pass
+
+
+def vault_environ():
+    return os.environ.update({"VAULT_ADDR": "http://localhost:8200"}) 
+
+
+@pytest.fixture(scope='module')
+def vault_login(host):
+    """
+    Login into Vault at setup
+    """
+    token_key = 'vault:lookup:dev_root_token'
+    result = host.salt('pillar.item', [token_key])
+    token = result[token_key]
+    assert subprocess.run(['vault', 'login', token], env=vault_environ()).returncode == 0
+    yield
+    # We cannot logout because vault (as opposed to fly) doesn't have an explicit target
+
+
+def test_vault_can_login(vault_login):
+    # test is empty because we are testing the vault_login fixture
     pass
 
 
@@ -206,3 +235,19 @@ class TestS3Pipeline(object):
                 break
             time.sleep(poll_interval)
         assert host_minio_get(host, bucket, pong)
+
+
+def test_concourse_can_read_secret_from_vault(fly_login, vault_login):
+
+    # vault kv put /concourse/main/can_you_read_me value=yes_i_can
+
+    secret_key = '/concourse/main/secret-color'
+    secret_value = 'lilac-blue'
+    assert subprocess.run(['vault', 'kv', 'put', secret_key, 'value={}'.format(secret_value)],
+                          env=vault_environ()).returncode == 0
+
+    pl = 'pipeline-with-secret'
+    assert fly('set-pipeline', non_interactive=True, pipeline=pl,
+               config='{}.yml'.format(HERE/pl)).returncode == 0
+    assert fly('unpause-pipeline', pipeline=pl).returncode == 0
+    assert fly('trigger-job', job='{}/read-from-vault'.format(pl), watch=True).returncode == 0

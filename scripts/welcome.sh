@@ -16,6 +16,8 @@ s3_access_key=$(salt_call pillar.get minio:lookup:access_key)
 s3_secret_key=$(salt_call pillar.get minio:lookup:secret_key)
 s3_endpoint=$(salt_call pillar.get minio:lookup:endpoint)
 
+vault_token=$(salt_call pillar.get vault:lookup:dev_root_token)
+
 cat <<EOF
 
      Concourse web server:  http://${external_ip}:8080
@@ -27,6 +29,10 @@ cat <<EOF
 S3 endpoint for pipelines:  ${s3_endpoint}
             s3_access_key:  ${s3_access_key}
             s3_secret_key:  ${s3_secret_key}
+
+          Vault from host: VAULT_ADDR=http://${external_ip}:8200 vault status
+         Vault from guest: VAULT_ADDR=http://${internal_ip}:8200 vault status
+ Login to vault from host: VAULT_ADDR=http://${external_ip}:8200 vault login ${vault_token}
 
    VM internal IP address:  ${internal_ip}
 EOF
